@@ -56,14 +56,11 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;z-index:
 /* Mobile */
 #m-ctrl{display:none;position:fixed;bottom:0;left:0;width:100%;z-index:12;pointer-events:none}
 .m-btn{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;pointer-events:auto;user-select:none;-webkit-user-select:none}
-#m-brake{bottom:20px;left:20px}
-#m-sprint{bottom:20px;right:20px}
-#m-kickl{bottom:84px;left:20px}
-#m-kickr{bottom:84px;right:20px}
+#m-kickl{bottom:20px;left:20px}
+#m-kickr{bottom:20px;right:20px}
+#m-left{bottom:84px;left:20px}
+#m-right{bottom:84px;right:20px}
 #m-jump{bottom:148px;right:38px;width:50px;height:50px;font-size:10px}
-#m-steer-hint{position:fixed;bottom:50%;left:0;width:100%;z-index:13;display:none;pointer-events:none;justify-content:space-between;padding:0 12px}
-.steer-arrow{font-size:48px;color:rgba(255,255,255,.25);animation:steer-pulse 1.5s ease-in-out infinite}
-@keyframes steer-pulse{0%,100%{opacity:.15}50%{opacity:.4}}
 
 #kick-popups{position:fixed;top:0;left:0;width:100%;height:100%;z-index:11;pointer-events:none}
 .kick-txt{position:absolute;font-size:28px;font-weight:900;color:#FF4444;text-shadow:0 0 10px rgba(255,68,68,.8),0 2px 4px rgba(0,0,0,.5);pointer-events:none}
@@ -138,10 +135,10 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;z-index:
   #result-msg{font-size:15px}
   #result-stats{font-size:13px}
   .m-btn{width:52px;height:52px;font-size:10px}
-  #m-brake{bottom:16px;left:16px}
-  #m-sprint{bottom:16px;right:16px}
-  #m-kickl{bottom:76px;left:16px}
-  #m-kickr{bottom:76px;right:16px}
+  #m-kickl{bottom:16px;left:16px}
+  #m-kickr{bottom:16px;right:16px}
+  #m-left{bottom:76px;left:16px}
+  #m-right{bottom:76px;right:16px}
   #m-jump{bottom:136px;right:34px;width:46px;height:46px}
   #m-pause{bottom:136px;left:34px;width:40px;height:40px;font-size:16px}
   #countdown-text{font-size:80px}
@@ -208,16 +205,14 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;z-index:
 
 <!-- Mobile Controls -->
 <div id="m-ctrl">
-  <div class="m-btn" id="m-brake">BRK</div>
-  <div class="m-btn" id="m-sprint">SPR</div>
-  <div class="m-btn" id="m-kickl">&#9664;</div>
-  <div class="m-btn" id="m-kickr">&#9654;</div>
+  <div class="m-btn" id="m-kickl">K&#9664;</div>
+  <div class="m-btn" id="m-kickr">K&#9654;</div>
+  <div class="m-btn" id="m-left">&#9664;</div>
+  <div class="m-btn" id="m-right">&#9654;</div>
   <div class="m-btn" id="m-jump">JMP</div>
   <div class="m-btn" id="m-pause">&#x23F8;</div>
 </div>
 
-<!-- Mobile steer hint -->
-<div id="m-steer-hint"><span class="steer-arrow">&#x25C0;</span><span class="steer-arrow">&#x25B6;</span></div>
 
 <div id="kick-popups"></div>
 <div id="flash"></div>
@@ -280,7 +275,6 @@ let leanAngle = 0;
 let cameraShakeTimer = 0, cameraShakeIntensity = 0;
 let crashParticles = [];
 let skidMarks = [];
-let mobileHintShown = false;
 
 // ============================================================
 // THREE.JS SETUP
@@ -1011,31 +1005,49 @@ renderer.domElement.addEventListener('pointerup', e=>{
   try{renderer.domElement.releasePointerCapture(e.pointerId)}catch(ex){}
 });
 
-// Mobile touch steering
-let touchSteer = 0;
+// Mobile touch controls
 if (isMobile) {
-  function handleTouchSteer(e){
-    if(gameState!=='race') return;
-    touchSteer=0;
-    for(const t of e.touches){
-      const rx=t.clientX/window.innerWidth;
-      if(rx<0.4) touchSteer=-1;
-      else if(rx>0.6) touchSteer=1;
-    }
-  }
-  renderer.domElement.addEventListener('touchstart', handleTouchSteer, {passive:true});
-  renderer.domElement.addEventListener('touchmove', handleTouchSteer, {passive:true});
-  renderer.domElement.addEventListener('touchend', ()=>{touchSteer=0;}, {passive:true});
-  document.getElementById('m-brake').addEventListener('touchstart', ()=>{keys._mbrake=true;}, {passive:true});
-  document.getElementById('m-brake').addEventListener('touchend', ()=>{keys._mbrake=false;}, {passive:true});
-  document.getElementById('m-sprint').addEventListener('touchstart', ()=>{keys._msprint=true;}, {passive:true});
-  document.getElementById('m-sprint').addEventListener('touchend', ()=>{keys._msprint=false;}, {passive:true});
+  // Double-tap detection for sprint & simultaneous press for brake
+  let lastTapL=0, lastTapR=0;
+  const DTAP=300; // double-tap threshold ms
+
+  // Steer left button — double-tap = sprint
+  document.getElementById('m-left').addEventListener('touchstart', ()=>{
+    keys._msteerL=true;
+    const now=performance.now();
+    if(now-lastTapL<DTAP) keys._msprint=true;
+    lastTapL=now;
+    // Both pressed = brake
+    if(keys._msteerR) keys._mbrake=true;
+  }, {passive:true});
+  document.getElementById('m-left').addEventListener('touchend', ()=>{
+    keys._msteerL=false; keys._msprint=false;
+    keys._mbrake=false;
+  }, {passive:true});
+
+  // Steer right button — double-tap = sprint
+  document.getElementById('m-right').addEventListener('touchstart', ()=>{
+    keys._msteerR=true;
+    const now=performance.now();
+    if(now-lastTapR<DTAP) keys._msprint=true;
+    lastTapR=now;
+    // Both pressed = brake
+    if(keys._msteerL) keys._mbrake=true;
+  }, {passive:true});
+  document.getElementById('m-right').addEventListener('touchend', ()=>{
+    keys._msteerR=false; keys._msprint=false;
+    keys._mbrake=false;
+  }, {passive:true});
+
+  // Kick left/right buttons
   document.getElementById('m-kickl').addEventListener('touchstart', ()=>{keys.KeyQ=true;}, {passive:true});
   document.getElementById('m-kickl').addEventListener('touchend', ()=>{keys.KeyQ=false;}, {passive:true});
   document.getElementById('m-kickr').addEventListener('touchstart', ()=>{keys.KeyE=true;}, {passive:true});
   document.getElementById('m-kickr').addEventListener('touchend', ()=>{keys.KeyE=false;}, {passive:true});
+  // Jump
   document.getElementById('m-jump').addEventListener('touchstart', ()=>{keys.Space=true;}, {passive:true});
   document.getElementById('m-jump').addEventListener('touchend', ()=>{keys.Space=false;}, {passive:true});
+  // Pause
   document.getElementById('m-pause').addEventListener('touchstart', ()=>{
     if(gameState==='race'&&!countdownActive){
       paused=!paused;
@@ -1167,8 +1179,8 @@ function initRace() {
 function updatePlayer(dt) {
   const accel = keys.KeyW||keys.ArrowUp||(isMobile&&!keys._mbrake);
   const brake = keys.KeyS||keys.ArrowDown||keys._mbrake;
-  const left = keys.KeyA||keys.ArrowLeft||(isMobile&&touchSteer<0);
-  const right = keys.KeyD||keys.ArrowRight||(isMobile&&touchSteer>0);
+  const left = keys.KeyA||keys.ArrowLeft||keys._msteerL;
+  const right = keys.KeyD||keys.ArrowRight||keys._msteerR;
   const sprint = keys.ShiftLeft||keys.ShiftRight||keys._msprint;
   const jump = keys.Space;
 
@@ -2406,7 +2418,7 @@ function setState(s) {
   document.getElementById('pause-menu').style.display='none';
   document.getElementById('countdown-overlay').style.display='none';
   document.getElementById('speed-lines').style.display='none';
-  if(isMobile){document.getElementById('m-ctrl').style.display='none';document.getElementById('m-steer-hint').style.display='none';}
+  if(isMobile){document.getElementById('m-ctrl').style.display='none';}
 
   switch(s){
     case 'title':
@@ -2431,12 +2443,6 @@ function setState(s) {
       document.getElementById('hud').style.display='block';
       if(isMobile){
         document.getElementById('m-ctrl').style.display='block';
-        if(!mobileHintShown){
-          mobileHintShown=true;
-          const hint=document.getElementById('m-steer-hint');
-          hint.style.display='flex';
-          setTimeout(()=>{hint.style.display='none';},4000);
-        }
       }
       hudCounter=0; updateHUD();
       break;
